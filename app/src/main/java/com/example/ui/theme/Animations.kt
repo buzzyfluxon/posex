@@ -15,24 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.graphicsLayer
 
-/**
- * iOS-style press feedback: a quick, springy scale-down plus a slight dim while the
- * finger is down, bouncing back to normal on release. This mirrors the tactile feel of
- * UIKit/SwiftUI controls (e.g. UIButton highlight state, SwiftUI's default button press).
- *
- * Usage: create (and `remember`) a [MutableInteractionSource], pass it both to this
- * modifier AND to the clickable/Button/IconButton/etc. so the press state driving the
- * animation matches the actual touch target:
- *
- * ```
- * val interactionSource = remember { MutableInteractionSource() }
- * Button(
- *     onClick = { ... },
- *     interactionSource = interactionSource,
- *     modifier = Modifier.iosPressAnimation(interactionSource)
- * ) { ... }
- * ```
- */
 @Composable
 fun Modifier.iosPressAnimation(
     interactionSource: MutableInteractionSource,
@@ -63,10 +45,6 @@ fun Modifier.iosPressAnimation(
         .alpha(dim)
 }
 
-/**
- * Slightly gentler variant for large surfaces (cards, list rows) where a big scale
- * change would look jarring — same spring feel, smaller travel.
- */
 @Composable
 fun Modifier.iosPressAnimationSubtle(
     interactionSource: MutableInteractionSource

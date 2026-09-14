@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,14 +52,14 @@ fun SettingsScreen(
 ) {
     val coroutineScope = rememberCoroutineScope()
     val isDarkMode by appSettings.darkModeFlow.collectAsStateWithLifecycle(initialValue = true)
-    val apiKey by appSettings.apiKeyFlow.collectAsStateWithLifecycle(initialValue = "")
     val cameraQuality by appSettings.cameraQualityFlow.collectAsStateWithLifecycle(initialValue = "High")
     val frameRate by appSettings.frameRateFlow.collectAsStateWithLifecycle(initialValue = "60 Hz")
     val imageQuality by appSettings.imageQualityFlow.collectAsStateWithLifecycle(initialValue = "100%")
 
-    var showApiDialog by remember { mutableStateOf(false) }
-    var tempApiKey by remember { mutableStateOf("") }
     var showAboutDialog by remember { mutableStateOf(false) }
+    var showCameraQualityDialog by remember { mutableStateOf(false) }
+    var showFrameRateDialog by remember { mutableStateOf(false) }
+    var showImageQualityDialog by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -143,7 +144,7 @@ fun SettingsScreen(
                     title = "Camera Quality",
                     subtitle = "Choose the output quality",
                     value = cameraQuality,
-                    onClick = {  }
+                    onClick = { showCameraQualityDialog = true }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 SettingsRowClickable(
@@ -151,7 +152,7 @@ fun SettingsScreen(
                     title = "Frame Rate (Hertz)",
                     subtitle = "Smoothness of the preview",
                     value = frameRate,
-                    onClick = {  }
+                    onClick = { showFrameRateDialog = true }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 SettingsRowClickable(
@@ -159,7 +160,7 @@ fun SettingsScreen(
                     title = "Image Quality",
                     subtitle = "Higher quality, larger size",
                     value = imageQuality,
-                    onClick = {  }
+                    onClick = { showImageQualityDialog = true }
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -228,6 +229,98 @@ fun SettingsScreen(
             textContentColor = Color.White
         )
     }
+
+    if (showCameraQualityDialog) {
+        SettingsChoiceDialog(
+            title = "Camera Quality",
+            options = listOf("Low", "Medium", "High"),
+            selected = cameraQuality,
+            onSelect = { coroutineScope.launch { appSettings.setCameraQuality(it) } },
+            onDismiss = { showCameraQualityDialog = false }
+        )
+    }
+
+    if (showFrameRateDialog) {
+        SettingsChoiceDialog(
+            title = "Frame Rate",
+            options = listOf("30 Hz", "60 Hz", "120 Hz"),
+            selected = frameRate,
+            onSelect = { coroutineScope.launch { appSettings.setFrameRate(it) } },
+            onDismiss = { showFrameRateDialog = false }
+        )
+    }
+
+    if (showImageQualityDialog) {
+        SettingsChoiceDialog(
+            title = "Image Quality",
+            options = listOf("50%", "75%", "100%"),
+            selected = imageQuality,
+            onSelect = { coroutineScope.launch { appSettings.setImageQuality(it) } },
+            onDismiss = { showImageQualityDialog = false }
+        )
+    }
+}
+
+@Composable
+fun SettingsChoiceDialog(
+    title: String,
+    options: List<String>,
+    selected: String,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { option ->
+                    val isSelected = option == selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .selectable(
+                                selected = isSelected,
+                                onClick = {
+                                    onSelect(option)
+                                    onDismiss()
+                                }
+                            )
+                            .padding(vertical = 12.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = {
+                                onSelect(option)
+                                onDismiss()
+                            },
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = Pink80,
+                                unselectedColor = Color.White.copy(alpha = 0.5f)
+                            )
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(option, color = Color.White)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            val closeInteractionSource = remember { MutableInteractionSource() }
+            TextButton(
+                onClick = onDismiss,
+                interactionSource = closeInteractionSource,
+                modifier = Modifier.iosPressAnimation(closeInteractionSource)
+            ) {
+                Text("Done")
+            }
+        },
+        containerColor = Color(0xFF1A1A1A),
+        titleContentColor = Color.White,
+        textContentColor = Color.White
+    )
 }
 
 @Composable

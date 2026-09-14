@@ -6,8 +6,6 @@ package com.example.ui.screens
 
 import android.content.ContentValues
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
@@ -24,6 +22,7 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -58,11 +57,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.data.AppSettings
 import com.example.ui.theme.IconCircle
@@ -70,9 +69,6 @@ import com.example.ui.theme.Pink80
 import com.example.ui.theme.PillTrack
 import com.example.ui.theme.iosPressAnimation
 import com.example.ui.theme.iosPressAnimationSubtle
-import java.util.concurrent.Executor
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.delay
 import android.Manifest
 
@@ -81,7 +77,8 @@ fun CameraScreen(
     initialImageUri: String?,
     appSettings: AppSettings,
     onNavigateBack: () -> Unit,
-    onNavigateToGallery: () -> Unit
+    onNavigateToGallery: () -> Unit,
+    onNavigateToSettings: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -115,7 +112,34 @@ fun CameraScreen(
         return
     }
 
-    var lensFacing by remember { mutableStateOf(CameraSelector.LENS_FACING_BACK) }
+    var availableCameras by remember { mutableStateOf<List<CameraInfo>>(emptyList()) }
+    var selectedCameraIndex by remember { mutableStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+        val infos = cameraProvider.availableCameraInfos
+        if (infos.isNotEmpty()) {
+            availableCameras = infos
+            val firstBackIndex = infos.indexOfFirst {
+                CameraSelector.DEFAULT_BACK_CAMERA.filter(listOf(it)).isNotEmpty()
+            }
+            selectedCameraIndex = if (firstBackIndex >= 0) firstBackIndex else 0
+        }
+    }
+
+    val cameraSelector: CameraSelector? = remember(availableCameras, selectedCameraIndex) {
+        val info = availableCameras.getOrNull(selectedCameraIndex) ?: return@remember null
+        CameraSelector.Builder()
+            .addCameraFilter { infos -> infos.filter { it == info } }
+            .build()
+    }
+
+    val switchToNextCamera: () -> Unit = {
+        if (availableCameras.isNotEmpty()) {
+            selectedCameraIndex = (selectedCameraIndex + 1) % availableCameras.size
+        }
+    }
+
     var flashMode by remember { mutableStateOf(ImageCapture.FLASH_MODE_OFF) }
     val imageCapture = remember { ImageCapture.Builder().build() }
 
@@ -136,7 +160,6 @@ fun CameraScreen(
     var isOverlayVisible by remember { mutableStateOf(true) }
 
     var showGrid by remember { mutableStateOf(false) }
-    var showOpacitySlider by remember { mutableStateOf(false) }
     var isCapturing by remember { mutableStateOf(false) }
 
     var aiInstruction by remember { mutableStateOf<String?>(null) }
@@ -185,12 +208,14 @@ fun CameraScreen(
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
-        CameraPreview(
-            lensFacing = lensFacing,
-            imageCapture = imageCapture,
-            lifecycleOwner = lifecycleOwner,
-            modifier = Modifier.fillMaxSize()
-        )
+        if (cameraSelector != null) {
+            CameraPreview(
+                cameraSelector = cameraSelector,
+                imageCapture = imageCapture,
+                lifecycleOwner = lifecycleOwner,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         if (showGrid) {
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -332,15 +357,25 @@ fun CameraScreen(
                 }
                 val flipInteractionSource = remember { MutableInteractionSource() }
                 IconButton(
-                    onClick = {
-                        lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
-                    },
+                    onClick = switchToNextCamera,
                     interactionSource = flipInteractionSource,
-                    modifier = Modifier.iosPressAnimation(flipInteractionSource)
+                    modifier = Modifier.iosPressAnimation(flipInteractionSource),
+                    enabled = availableCameras.size > 1
                 ) {
-                    Icon(Icons.Filled.Refresh, "Flip Camera", tint = Color.White)
+                    Icon(Icons.Filled.Refresh, "Switch Camera", tint = Color.White)
                 }
             }
+        }
+
+        if (availableCameras.size > 2) {
+            CameraSwitcherBar(
+                cameras = availableCameras,
+                selectedIndex = selectedCameraIndex,
+                onSelect = { selectedCameraIndex = it },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 172.dp)
+            )
         }
 
         if (imageUri != null) {
@@ -357,27 +392,15 @@ fun CameraScreen(
                         .background(Color(0xFF222222))
                         .padding(vertical = 24.dp, horizontal = 12.dp)
                 ) {
-                    Text("Opacity\n${(opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("Opacity\n${(opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Box(
+                    VerticalOpacitySlider(
+                        value = opacity,
+                        onValueChange = { opacity = it },
                         modifier = Modifier
                             .width(40.dp)
-                            .height(180.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Slider(
-                            value = opacity,
-                            onValueChange = { opacity = it },
-                            modifier = Modifier
-                                .width(180.dp)
-                                .graphicsLayer(rotationZ = -90f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Pink80,
-                                activeTrackColor = Pink80,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
-                            )
-                        )
-                    }
+                            .height(180.dp)
+                    )
                 }
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -548,7 +571,7 @@ fun CameraScreen(
 
                 val tuneInteractionSource = remember { MutableInteractionSource() }
                 IconButton(
-                    onClick = {  },
+                    onClick = onNavigateToSettings,
                     interactionSource = tuneInteractionSource,
                     modifier = Modifier
                         .size(48.dp)
@@ -564,8 +587,110 @@ fun CameraScreen(
 }
 
 @Composable
+fun VerticalOpacitySlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(
+        modifier = modifier
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        onValueChange((1f - offset.y / size.height.toFloat()).coerceIn(0f, 1f))
+                    },
+                    onDrag = { change, _ ->
+                        change.consume()
+                        onValueChange((1f - change.position.y / size.height.toFloat()).coerceIn(0f, 1f))
+                    }
+                )
+            },
+        contentAlignment = Alignment.BottomCenter
+    ) {
+        val trackHeight = maxHeight
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .width(4.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(2.dp))
+                .background(Color.White.copy(alpha = 0.25f))
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .width(4.dp)
+                .height(trackHeight * value)
+                .clip(RoundedCornerShape(2.dp))
+                .background(Pink80)
+        )
+
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .offset(y = 10.dp - trackHeight * value)
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(Color.White)
+                .border(2.dp, Pink80, CircleShape)
+        )
+    }
+}
+
+@Composable
+fun CameraSwitcherBar(
+    cameras: List<CameraInfo>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var backCount = 0
+    var frontCount = 0
+    val labels = cameras.map { info ->
+        val isBack = CameraSelector.DEFAULT_BACK_CAMERA.filter(listOf(info)).isNotEmpty()
+        if (isBack) {
+            backCount += 1
+            if (cameras.count { CameraSelector.DEFAULT_BACK_CAMERA.filter(listOf(it)).isNotEmpty() } > 1) "Back $backCount" else "Back"
+        } else {
+            frontCount += 1
+            if (cameras.count { CameraSelector.DEFAULT_FRONT_CAMERA.filter(listOf(it)).isNotEmpty() } > 1) "Front $frontCount" else "Front"
+        }
+    }
+
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(50))
+            .background(PillTrack)
+            .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        labels.forEachIndexed { index, label ->
+            val isSelected = index == selectedIndex
+            val interactionSource = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .iosPressAnimationSubtle(interactionSource)
+                    .clip(RoundedCornerShape(50))
+                    .background(if (isSelected) Pink80 else Color.Transparent)
+                    .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onSelect(index) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = label,
+                    color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.8f),
+                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                    fontSize = 13.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun CameraPreview(
-    lensFacing: Int,
+    cameraSelector: CameraSelector,
     imageCapture: ImageCapture,
     lifecycleOwner: androidx.lifecycle.LifecycleOwner,
     modifier: Modifier = Modifier
@@ -586,7 +711,6 @@ fun CameraPreview(
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
-                val cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()
 
                 try {
                     cameraProvider.unbindAll()
