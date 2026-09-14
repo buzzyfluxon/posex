@@ -16,11 +16,17 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,6 +68,8 @@ import com.example.data.AppSettings
 import com.example.ui.theme.IconCircle
 import com.example.ui.theme.Pink80
 import com.example.ui.theme.PillTrack
+import com.example.ui.theme.iosPressAnimation
+import com.example.ui.theme.iosPressAnimationSubtle
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -94,7 +102,12 @@ fun CameraScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Camera permission is required.", color = MaterialTheme.colorScheme.onBackground)
                 Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
+                val grantInteractionSource = remember { MutableInteractionSource() }
+                Button(
+                    onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                    interactionSource = grantInteractionSource,
+                    modifier = Modifier.iosPressAnimation(grantInteractionSource)
+                ) {
                     Text("Grant Permission")
                 }
             }
@@ -228,7 +241,12 @@ fun CameraScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onNavigateBack) {
+            val closeInteractionSource = remember { MutableInteractionSource() }
+            IconButton(
+                onClick = onNavigateBack,
+                interactionSource = closeInteractionSource,
+                modifier = Modifier.iosPressAnimation(closeInteractionSource)
+            ) {
                 Icon(Icons.Outlined.Close, "Close", tint = Color.White)
             }
 
@@ -246,10 +264,12 @@ fun CameraScreen(
                 ) {
                     Text("Camera", color = Color.Black, fontWeight = FontWeight.Medium, fontSize = 14.sp)
                 }
+                val galleryInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
+                        .iosPressAnimationSubtle(galleryInteractionSource)
                         .clip(RoundedCornerShape(50))
-                        .clickable { onNavigateToGallery() }
+                        .clickable(interactionSource = galleryInteractionSource, indication = LocalIndication.current) { onNavigateToGallery() }
                         .padding(horizontal = 20.dp, vertical = 8.dp)
                 ) {
                     Text("Gallery", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
@@ -257,20 +277,30 @@ fun CameraScreen(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { showGrid = !showGrid }) {
+                val gridInteractionSource = remember { MutableInteractionSource() }
+                IconButton(
+                    onClick = { showGrid = !showGrid },
+                    interactionSource = gridInteractionSource,
+                    modifier = Modifier.iosPressAnimation(gridInteractionSource)
+                ) {
                     Icon(
                         Icons.Filled.GridOn,
                         "Toggle Grid",
                         tint = if (showGrid) Pink80 else Color.White
                     )
                 }
-                IconButton(onClick = {
-                    flashMode = when (flashMode) {
-                        ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_ON
-                        ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_AUTO
-                        else -> ImageCapture.FLASH_MODE_OFF
-                    }
-                }) {
+                val flashInteractionSource = remember { MutableInteractionSource() }
+                IconButton(
+                    onClick = {
+                        flashMode = when (flashMode) {
+                            ImageCapture.FLASH_MODE_OFF -> ImageCapture.FLASH_MODE_ON
+                            ImageCapture.FLASH_MODE_ON -> ImageCapture.FLASH_MODE_AUTO
+                            else -> ImageCapture.FLASH_MODE_OFF
+                        }
+                    },
+                    interactionSource = flashInteractionSource,
+                    modifier = Modifier.iosPressAnimation(flashInteractionSource)
+                ) {
                     Icon(
                         when (flashMode) {
                             ImageCapture.FLASH_MODE_ON -> Icons.Filled.FlashOn
@@ -281,10 +311,15 @@ fun CameraScreen(
                         tint = if (flashMode == ImageCapture.FLASH_MODE_OFF) Color.White else Pink80
                     )
                 }
-                IconButton(onClick = {
-                    val currentIndex = timerOptions.indexOf(timerSeconds)
-                    timerSeconds = timerOptions[(currentIndex + 1) % timerOptions.size]
-                }) {
+                val timerInteractionSource = remember { MutableInteractionSource() }
+                IconButton(
+                    onClick = {
+                        val currentIndex = timerOptions.indexOf(timerSeconds)
+                        timerSeconds = timerOptions[(currentIndex + 1) % timerOptions.size]
+                    },
+                    interactionSource = timerInteractionSource,
+                    modifier = Modifier.iosPressAnimation(timerInteractionSource)
+                ) {
                     Icon(
                         when (timerSeconds) {
                             3 -> Icons.Filled.Timer3
@@ -295,9 +330,14 @@ fun CameraScreen(
                         tint = if (timerSeconds == 0) Color.White else Pink80
                     )
                 }
-                IconButton(onClick = {
-                    lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
-                }) {
+                val flipInteractionSource = remember { MutableInteractionSource() }
+                IconButton(
+                    onClick = {
+                        lensFacing = if (lensFacing == CameraSelector.LENS_FACING_BACK) CameraSelector.LENS_FACING_FRONT else CameraSelector.LENS_FACING_BACK
+                    },
+                    interactionSource = flipInteractionSource,
+                    modifier = Modifier.iosPressAnimation(flipInteractionSource)
+                ) {
                     Icon(Icons.Filled.Refresh, "Flip Camera", tint = Color.White)
                 }
             }
@@ -319,37 +359,52 @@ fun CameraScreen(
                 ) {
                     Text("Opacity\n${(opacity * 100).toInt()}%", color = Color.White, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Slider(
-                        value = opacity,
-                        onValueChange = { opacity = it },
-                        modifier = Modifier.height(180.dp).graphicsLayer(rotationZ = -90f, translationY = -12f),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Pink80,
-                            activeTrackColor = Pink80,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                    Box(
+                        modifier = Modifier
+                            .width(40.dp)
+                            .height(180.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Slider(
+                            value = opacity,
+                            onValueChange = { opacity = it },
+                            modifier = Modifier
+                                .width(180.dp)
+                                .graphicsLayer(rotationZ = -90f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Pink80,
+                                activeTrackColor = Pink80,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.2f)
+                            )
                         )
-                    )
+                    }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
 
+                val zoomInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .size(44.dp)
+                        .iosPressAnimation(zoomInteractionSource)
                         .clip(CircleShape)
                         .background(IconCircle)
-                        .clickable { scale = (scale * 1.2f).coerceIn(0.5f, 5f) },
+                        .clickable(interactionSource = zoomInteractionSource, indication = LocalIndication.current) {
+                            scale = (scale * 1.2f).coerceIn(0.5f, 5f)
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Filled.ZoomIn, "Zoom", tint = Color.White, modifier = Modifier.size(20.dp))
                 }
                 Spacer(modifier = Modifier.height(12.dp))
 
+                val fitInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .size(44.dp)
+                        .iosPressAnimation(fitInteractionSource)
                         .clip(CircleShape)
                         .background(IconCircle)
-                        .clickable {
+                        .clickable(interactionSource = fitInteractionSource, indication = LocalIndication.current) {
                             scale = 1f
                             offsetX = 0f
                             offsetY = 0f
@@ -361,12 +416,14 @@ fun CameraScreen(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
 
+                val moveInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .size(44.dp)
+                        .iosPressAnimation(moveInteractionSource)
                         .clip(CircleShape)
                         .background(IconCircle)
-                        .clickable {
+                        .clickable(interactionSource = moveInteractionSource, indication = LocalIndication.current) {
                             scale = 1f
                             offsetX = 0f
                             offsetY = 0f
@@ -436,6 +493,7 @@ fun CameraScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
 
+                val pickImageInteractionSource = remember { MutableInteractionSource() }
                 IconButton(
                     onClick = {
                         photoPickerLauncher.launch(
@@ -444,18 +502,37 @@ fun CameraScreen(
                             )
                         )
                     },
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(IconCircle)
+                    interactionSource = pickImageInteractionSource,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .iosPressAnimation(pickImageInteractionSource)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(IconCircle)
                 ) {
                     Icon(Icons.Outlined.Image, "Pick Image", tint = Color.White)
                 }
 
+                val shutterInteractionSource = remember { MutableInteractionSource() }
+                val isShutterPressed by shutterInteractionSource.collectIsPressedAsState()
+                val shutterInnerScale by animateFloatAsState(
+                    targetValue = if (isShutterPressed) 0.85f else 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessHigh
+                    ),
+                    label = "shutterScale"
+                )
                 Box(
                     modifier = Modifier
                         .size(80.dp)
                         .clip(CircleShape)
                         .background(Color.Transparent)
                         .border(3.dp, Pink80, CircleShape)
-                        .clickable(enabled = !isCapturing && countdownValue == null) {
+                        .clickable(
+                            interactionSource = shutterInteractionSource,
+                            indication = LocalIndication.current,
+                            enabled = !isCapturing && countdownValue == null
+                        ) {
                             triggerCapture()
                         },
                     contentAlignment = Alignment.Center
@@ -463,14 +540,21 @@ fun CameraScreen(
                     Box(
                         modifier = Modifier
                             .size(68.dp)
+                            .graphicsLayer { scaleX = shutterInnerScale; scaleY = shutterInnerScale }
                             .clip(CircleShape)
                             .background(Pink80)
                     )
                 }
 
+                val tuneInteractionSource = remember { MutableInteractionSource() }
                 IconButton(
                     onClick = {  },
-                    modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(IconCircle)
+                    interactionSource = tuneInteractionSource,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .iosPressAnimation(tuneInteractionSource)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(IconCircle)
                 ) {
                     Icon(Icons.Outlined.Tune, "Settings", tint = Color.White)
                 }

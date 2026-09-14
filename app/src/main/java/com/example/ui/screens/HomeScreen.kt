@@ -11,6 +11,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,6 +44,8 @@ import com.example.ui.theme.MauveCardDark
 import com.example.ui.theme.Pink80
 import com.example.ui.theme.PolaroidCream
 import com.example.ui.theme.RowSurface
+import com.example.ui.theme.iosPressAnimation
+import com.example.ui.theme.iosPressAnimationSubtle
 
 @Composable
 fun HomeScreen(
@@ -123,7 +127,12 @@ fun HomeScreen(
                         color = Color.White.copy(alpha = 0.7f)
                     )
                 }
-                IconButton(onClick = onNavigateToSettings) {
+                val settingsInteractionSource = remember { MutableInteractionSource() }
+                IconButton(
+                    onClick = onNavigateToSettings,
+                    interactionSource = settingsInteractionSource,
+                    modifier = Modifier.iosPressAnimation(settingsInteractionSource)
+                ) {
                     Icon(
                         imageVector = Icons.Outlined.Settings,
                         contentDescription = "Settings",
@@ -213,14 +222,17 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(32.dp))
 
+                    val startInteractionSource = remember { MutableInteractionSource() }
                     Button(
                         onClick = { onNavigateToCamera(null) },
                         colors = ButtonDefaults.buttonColors(containerColor = Pink80),
                         shape = RoundedCornerShape(24.dp),
                         contentPadding = PaddingValues(0.dp),
+                        interactionSource = startInteractionSource,
                         modifier = Modifier
                             .fillMaxWidth(0.8f)
                             .height(56.dp)
+                            .iosPressAnimation(startInteractionSource)
                     ) {
                         Row(
                             horizontalArrangement = Arrangement.Center,
@@ -285,12 +297,14 @@ fun QuickAccessItem(
     subtitle: String,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .iosPressAnimationSubtle(interactionSource)
             .clip(RoundedCornerShape(20.dp))
             .background(RowSurface)
-            .clickable { onClick() }
+            .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onClick() }
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -4,8 +4,10 @@
 
 package com.example.ui.screens
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +39,8 @@ import com.example.data.AppSettings
 import com.example.ui.theme.IconCircle
 import com.example.ui.theme.Pink80
 import com.example.ui.theme.RowSurface
+import com.example.ui.theme.iosPressAnimation
+import com.example.ui.theme.iosPressAnimationSubtle
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,7 +84,12 @@ fun SettingsScreen(
             TopAppBar(
                 title = { },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    val backInteractionSource = remember { MutableInteractionSource() }
+                    IconButton(
+                        onClick = onNavigateBack,
+                        interactionSource = backInteractionSource,
+                        modifier = Modifier.iosPressAnimation(backInteractionSource)
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.ChevronLeft,
                             contentDescription = "Back",
@@ -205,7 +214,12 @@ fun SettingsScreen(
             title = { Text("About Pose X") },
             text = { Text("Pose X\nVersion 1.0\nPose-reference camera application.") },
             confirmButton = {
-                TextButton(onClick = { showAboutDialog = false }) {
+                val closeInteractionSource = remember { MutableInteractionSource() }
+                TextButton(
+                    onClick = { showAboutDialog = false },
+                    interactionSource = closeInteractionSource,
+                    modifier = Modifier.iosPressAnimation(closeInteractionSource)
+                ) {
                     Text("Close")
                 }
             },
@@ -273,12 +287,14 @@ fun SettingsRowClickable(
     value: String,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .iosPressAnimationSubtle(interactionSource)
             .clip(RoundedCornerShape(20.dp))
             .background(RowSurface)
-            .clickable { onClick() }
+            .clickable(interactionSource = interactionSource, indication = LocalIndication.current) { onClick() }
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

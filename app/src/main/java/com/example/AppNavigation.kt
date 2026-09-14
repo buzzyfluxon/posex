@@ -4,6 +4,8 @@
 
 package com.example
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -14,9 +16,42 @@ import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.data.AppSettings
 
+// Duration/easing chosen to match the push/pop feel of a UINavigationController.
+private const val IOS_TRANSITION_DURATION_MS = 320
+
 @Composable
 fun AppNavigation(appSettings: AppSettings, navController: NavHostController = rememberNavController()) {
-    NavHost(navController = navController, startDestination = "home") {
+    NavHost(
+        navController = navController,
+        startDestination = "home",
+        // iOS-style push: incoming screen slides in from the right while the
+        // current one slides slightly left and dims, mirroring UINavigationController.
+        enterTransition = {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(IOS_TRANSITION_DURATION_MS)
+            )
+        },
+        exitTransition = {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(IOS_TRANSITION_DURATION_MS)
+            )
+        },
+        // iOS-style pop: reverse of the push, the previous screen slides back in from the left.
+        popEnterTransition = {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(IOS_TRANSITION_DURATION_MS)
+            )
+        },
+        popExitTransition = {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(IOS_TRANSITION_DURATION_MS)
+            )
+        }
+    ) {
         composable("home") {
             HomeScreen(
                 onNavigateToCamera = { imageUri ->
