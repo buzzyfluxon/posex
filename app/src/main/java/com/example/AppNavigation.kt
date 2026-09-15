@@ -4,6 +4,7 @@
 
 package com.example
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
@@ -14,6 +15,7 @@ import androidx.navigation.compose.rememberNavController
 import com.example.ui.screens.CameraScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.TemplatesScreen
 import com.example.data.AppSettings
 
 private const val IOS_TRANSITION_DURATION_MS = 320
@@ -51,21 +53,19 @@ fun AppNavigation(appSettings: AppSettings, navController: NavHostController = r
         composable("home") {
             HomeScreen(
                 onNavigateToCamera = { imageUri ->
-                    val route = if (imageUri != null) "camera?imageUri=$imageUri" else "camera"
+                    val route = if (imageUri != null) "camera?imageUri=${Uri.encode(imageUri)}" else "camera"
                     navController.navigate(route)
                 },
                 onNavigateToSettings = { navController.navigate("settings") }
             )
         }
         composable("camera?imageUri={imageUri}") { backStackEntry ->
-            val imageUri = backStackEntry.arguments?.getString("imageUri")
+            val imageUri = backStackEntry.arguments?.getString("imageUri")?.let { Uri.decode(it) }
             CameraScreen(
                 initialImageUri = imageUri,
                 appSettings = appSettings,
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToGallery = {
-                    navController.popBackStack()
-                },
+                onNavigateToGallery = { navController.navigate("templates") },
                 onNavigateToSettings = { navController.navigate("settings") }
             )
         }
@@ -74,10 +74,18 @@ fun AppNavigation(appSettings: AppSettings, navController: NavHostController = r
                 initialImageUri = null,
                 appSettings = appSettings,
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToGallery = {
-                    navController.popBackStack()
-                },
+                onNavigateToGallery = { navController.navigate("templates") },
                 onNavigateToSettings = { navController.navigate("settings") }
+            )
+        }
+        composable("templates") {
+            TemplatesScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onTemplateSelected = { imageUrl ->
+                    navController.navigate("camera?imageUri=${Uri.encode(imageUrl)}") {
+                        popUpTo("home")
+                    }
+                }
             )
         }
         composable("settings") {

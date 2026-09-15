@@ -6,12 +6,19 @@ package com.example.ui.screens
 
 import android.content.ContentValues
 import android.content.Context
+import android.hardware.camera2.CaptureRequest
 import android.net.Uri
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Range
+import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.Spring
@@ -62,7 +69,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.example.camera.VolumeShutterController
 import com.example.data.AppSettings
 import com.example.ui.theme.IconCircle
 import com.example.ui.theme.Pink80
@@ -141,7 +150,49 @@ fun CameraScreen(
     }
 
     var flashMode by remember { mutableStateOf(ImageCapture.FLASH_MODE_OFF) }
-    val imageCapture = remember { ImageCapture.Builder().build() }
+
+    val cameraQualitySetting by appSettings.cameraQualityFlow.collectAsStateWithLifecycle(initialValue = "High")
+    val frameRateSetting by appSettings.frameRateFlow.collectAsStateWithLifecycle(initialValue = "60 Hz")
+    val imageQualitySetting by appSettings.imageQualityFlow.collectAsStateWithLifecycle(initialValue = "100%")
+
+    val jpegQuality = when (imageQualitySetting) {
+        "50%" -> 50
+        "75%" -> 75
+        else -> 100
+    }
+
+    val imageCapture = remember(cameraQualitySetting, imageQualitySetting) {
+        val resolutionStrategy = when (cameraQualitySetting) {
+            "Low" -> ResolutionStrategy(Size(1280, 720), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)
+            "Medium" -> ResolutionStrategy(Size(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER)
+            else -> ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY
+        }
+        ImageCapture.Builder()
+            .setJpegQuality(jpegQuality)
+            .setResolutionSelector(
+                ResolutionSelector.Builder()
+                    .setResolutionStrategy(resolutionStrategy)
+                    .build()
+            )
+            .build()
+    }
+
+    val targetFps = when (frameRateSetting) {
+        "30 Hz" -> 30
+        "120 Hz" -> 120
+        else -> 60
+    }
+
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    var zoomRatio by remember { mutableStateOf(1f) }
+    var minZoomRatio by remember { mutableStateOf(1f) }
+    var maxZoomRatio by remember { mutableStateOf(1f) }
+
+    val applyZoom: (Float) -> Unit = { zoomDelta ->
+        val newRatio = (zoomRatio * zoomDelta).coerceIn(minZoomRatio, maxZoomRatio)
+        zoomRatio = newRatio
+        camera?.cameraControl?.setZoomRatio(newRatio)
+    }
 
     LaunchedEffect(flashMode) {
         imageCapture.flashMode = flashMode
@@ -182,6 +233,17 @@ fun CameraScreen(
         }
     }
 
+    DisposableEffect(Unit) {
+        VolumeShutterController.onVolumeKeyPressed = {
+            if (!isCapturing && countdownValue == null) {
+                triggerCapture()
+            }
+        }
+        onDispose {
+            VolumeShutterController.onVolumeKeyPressed = null
+        }
+    }
+
     LaunchedEffect(countdownValue) {
         val current = countdownValue ?: return@LaunchedEffect
         if (current > 0) {
@@ -213,7 +275,21 @@ fun CameraScreen(
                 cameraSelector = cameraSelector,
                 imageCapture = imageCapture,
                 lifecycleOwner = lifecycleOwner,
-                modifier = Modifier.fillMaxSize()
+                targetFps = targetFps,
+                onCameraReady = { cam ->
+                    camera = cam
+                    val zoomState = cam.cameraInfo.zoomState.value
+                    minZoomRatio = zoomState?.minZoomRatio ?: 1f
+                    maxZoomRatio = zoomState?.maxZoomRatio ?: 1f
+                    zoomRatio = zoomState?.zoomRatio ?: 1f
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(camera) {
+                        detectTransformGestures { _, _, zoom, _ ->
+                            applyZoom(zoom)
+                        }
+                    }
             )
         }
 
@@ -234,7 +310,7 @@ fun CameraScreen(
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, panRotation ->
-                            scale = (scale * zoom).coerceIn(0.5f, 5f)
+                            applyZoom(zoom)
                             offsetX += pan.x
                             offsetY += pan.y
                             rotation += panRotation
@@ -456,6 +532,24 @@ fun CameraScreen(
                 ) {
                     Icon(Icons.Filled.OpenWith, "Move", tint = Color.White, modifier = Modifier.size(20.dp))
                 }
+            }
+        }
+
+        if (camera != null && zoomRatio > 1.02f) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 108.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = String.format("%.1fx", zoomRatio),
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
 
@@ -688,11 +782,14 @@ fun CameraSwitcherBar(
     }
 }
 
+@OptIn(ExperimentalCamera2Interop::class)
 @Composable
 fun CameraPreview(
     cameraSelector: CameraSelector,
     imageCapture: ImageCapture,
     lifecycleOwner: androidx.lifecycle.LifecycleOwner,
+    targetFps: Int = 60,
+    onCameraReady: (Camera) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -708,18 +805,24 @@ fun CameraPreview(
             val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
-                val preview = Preview.Builder().build().also {
+                val previewBuilder = Preview.Builder()
+                Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                    Range(targetFps, targetFps)
+                )
+                val preview = previewBuilder.build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
 
                 try {
                     cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    val camera = cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         cameraSelector,
                         preview,
                         imageCapture
                     )
+                    onCameraReady(camera)
                 } catch (e: Exception) {
                     Log.e("CameraPreview", "Use case binding failed", e)
                 }
