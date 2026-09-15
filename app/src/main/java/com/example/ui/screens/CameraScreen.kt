@@ -552,15 +552,6 @@ fun CameraScreen(
                         tint = if (timerSeconds == 0) Color.White else Pink80
                     )
                 }
-                val flipInteractionSource = remember { MutableInteractionSource() }
-                IconButton(
-                    onClick = switchToNextCamera,
-                    interactionSource = flipInteractionSource,
-                    modifier = Modifier.iosPressAnimation(flipInteractionSource),
-                    enabled = availableCameras.size > 1
-                ) {
-                    Icon(Icons.Filled.Cameraswitch, "Switch Camera", tint = Color.White)
-                }
             }
         }
 
@@ -783,13 +774,11 @@ fun CameraScreen(
                 .fillMaxWidth()
         ) {
 
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 32.dp)
-                    .padding(bottom = 48.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(bottom = 48.dp)
             ) {
 
                 val pickImageInteractionSource = remember { MutableInteractionSource() }
@@ -803,6 +792,7 @@ fun CameraScreen(
                     },
                     interactionSource = pickImageInteractionSource,
                     modifier = Modifier
+                        .align(Alignment.CenterStart)
                         .size(48.dp)
                         .iosPressAnimation(pickImageInteractionSource)
                         .clip(RoundedCornerShape(14.dp))
@@ -823,6 +813,7 @@ fun CameraScreen(
                 )
                 Box(
                     modifier = Modifier
+                        .align(Alignment.Center)
                         .size(80.dp)
                         .clip(CircleShape)
                         .background(Color.Transparent)
@@ -845,17 +836,37 @@ fun CameraScreen(
                     )
                 }
 
+                val flipInteractionSource = remember { MutableInteractionSource() }
                 val tuneInteractionSource = remember { MutableInteractionSource() }
-                IconButton(
-                    onClick = onNavigateToSettings,
-                    interactionSource = tuneInteractionSource,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .iosPressAnimation(tuneInteractionSource)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(IconCircle)
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Outlined.Tune, "Settings", tint = Color.White)
+                    IconButton(
+                        onClick = switchToNextCamera,
+                        interactionSource = flipInteractionSource,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .iosPressAnimation(flipInteractionSource)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(IconCircle),
+                        enabled = availableCameras.size > 1
+                    ) {
+                        Icon(Icons.Filled.Cameraswitch, "Switch Camera", tint = Color.White)
+                    }
+
+                    IconButton(
+                        onClick = onNavigateToSettings,
+                        interactionSource = tuneInteractionSource,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .iosPressAnimation(tuneInteractionSource)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(IconCircle)
+                    ) {
+                        Icon(Icons.Outlined.Tune, "Settings", tint = Color.White)
+                    }
                 }
             }
         }
