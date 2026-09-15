@@ -21,9 +21,12 @@ import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import android.media.MediaActionSound
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -40,13 +43,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.OpenWith
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Timer3
 import androidx.compose.material.icons.filled.Timer10
 import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Image
@@ -62,7 +68,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -79,6 +87,8 @@ import com.example.ui.theme.PillTrack
 import com.example.ui.theme.iosPressAnimation
 import com.example.ui.theme.iosPressAnimationSubtle
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import android.Manifest
 
 @Composable
@@ -145,7 +155,23 @@ fun CameraScreen(
 
     val switchToNextCamera: () -> Unit = {
         if (availableCameras.isNotEmpty()) {
-            selectedCameraIndex = (selectedCameraIndex + 1) % availableCameras.size
+            val currentIsBack = CameraSelector.DEFAULT_BACK_CAMERA.filter(
+                listOf(availableCameras[selectedCameraIndex])
+            ).isNotEmpty()
+            val targetIndex = if (currentIsBack) {
+                availableCameras.indexOfFirst {
+                    CameraSelector.DEFAULT_FRONT_CAMERA.filter(listOf(it)).isNotEmpty()
+                }
+            } else {
+                availableCameras.indexOfFirst {
+                    CameraSelector.DEFAULT_BACK_CAMERA.filter(listOf(it)).isNotEmpty()
+                }
+            }
+            selectedCameraIndex = if (targetIndex >= 0) {
+                targetIndex
+            } else {
+                (selectedCameraIndex + 1) % availableCameras.size
+            }
         }
     }
 
@@ -198,6 +224,10 @@ fun CameraScreen(
         imageCapture.flashMode = flashMode
     }
 
+    val coroutineScope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+
+    var settingsLoaded by remember { mutableStateOf(false) }
     val timerOptions = listOf(0, 3, 10)
     var timerSeconds by remember { mutableStateOf(0) }
     var countdownValue by remember { mutableStateOf<Int?>(null) }
@@ -209,20 +239,101 @@ fun CameraScreen(
     var rotation by remember { mutableStateOf(0f) }
     var opacity by remember { mutableStateOf(0.6f) }
     var isOverlayVisible by remember { mutableStateOf(true) }
+    var isOverlayLocked by remember { mutableStateOf(false) }
 
     var showGrid by remember { mutableStateOf(false) }
     var isCapturing by remember { mutableStateOf(false) }
 
-    var aiInstruction by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        opacity = appSettings.overlayOpacityFlow.first()
+        timerSeconds = appSettings.timerSecondsFlow.first()
+        showGrid = appSettings.showGridFlow.first()
+        settingsLoaded = true
+    }
+
+    LaunchedEffect(opacity, settingsLoaded) {
+        if (!settingsLoaded) return@LaunchedEffect
+        delay(300)
+        appSettings.setOverlayOpacity(opacity)
+    }
+
+    LaunchedEffect(timerSeconds, settingsLoaded) {
+        if (!settingsLoaded) return@LaunchedEffect
+        appSettings.setTimerSeconds(timerSeconds)
+    }
+
+    LaunchedEffect(showGrid, settingsLoaded) {
+        if (!settingsLoaded) return@LaunchedEffect
+        appSettings.setShowGrid(showGrid)
+    }
+
+    var lastCapturedUri by remember { mutableStateOf<Uri?>(null) }
+    var showSavedToast by remember { mutableStateOf(false) }
+    var screenFlashActive by remember { mutableStateOf(false) }
+
+    val isFrontCamera = availableCameras.getOrNull(selectedCameraIndex)?.let {
+        CameraSelector.DEFAULT_FRONT_CAMERA.filter(listOf(it)).isNotEmpty()
+    } ?: false
+
+    val shutterFlash = remember { Animatable(0f) }
+    val shutterSound = remember { MediaActionSound() }
+    LaunchedEffect(Unit) {
+        shutterSound.load(MediaActionSound.SHUTTER_CLICK)
+    }
+    DisposableEffect(Unit) {
+        onDispose { shutterSound.release() }
+    }
+
+    val onPhotoCaptured: (Uri?) -> Unit = { uri ->
+        isCapturing = false
+        screenFlashActive = false
+        lastCapturedUri = uri
+        showSavedToast = true
+    }
+
+    val onPhotoError: (Exception) -> Unit = {
+        isCapturing = false
+        screenFlashActive = false
+    }
 
     val startCapture: () -> Unit = {
         isCapturing = true
-        takePhoto(
-            context = context,
-            imageCapture = imageCapture,
-            onPhotoTaken = { isCapturing = false },
-            onError = { isCapturing = false }
-        )
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (isFrontCamera && flashMode != ImageCapture.FLASH_MODE_OFF) {
+            coroutineScope.launch {
+                screenFlashActive = true
+                delay(250)
+                shutterSound.play(MediaActionSound.SHUTTER_CLICK)
+                takePhoto(
+                    context = context,
+                    imageCapture = imageCapture,
+                    onPhotoTaken = onPhotoCaptured,
+                    onError = onPhotoError
+                )
+            }
+        } else {
+            shutterSound.play(MediaActionSound.SHUTTER_CLICK)
+            takePhoto(
+                context = context,
+                imageCapture = imageCapture,
+                onPhotoTaken = onPhotoCaptured,
+                onError = onPhotoError
+            )
+        }
+    }
+
+    LaunchedEffect(isCapturing) {
+        if (isCapturing) {
+            shutterFlash.snapTo(1f)
+            shutterFlash.animateTo(0f, animationSpec = tween(durationMillis = 260))
+        }
+    }
+
+    LaunchedEffect(showSavedToast) {
+        if (showSavedToast) {
+            delay(1200)
+            showSavedToast = false
+        }
     }
 
     val triggerCapture: () -> Unit = {
@@ -231,6 +342,10 @@ fun CameraScreen(
         } else {
             startCapture()
         }
+    }
+
+    val cancelCountdown: () -> Unit = {
+        countdownValue = null
     }
 
     DisposableEffect(Unit) {
@@ -308,14 +423,20 @@ fun CameraScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, panRotation ->
-                            applyZoom(zoom)
-                            offsetX += pan.x
-                            offsetY += pan.y
-                            rotation += panRotation
+                    .then(
+                        if (isOverlayLocked) {
+                            Modifier
+                        } else {
+                            Modifier.pointerInput(Unit) {
+                                detectTransformGestures { _, pan, zoom, panRotation ->
+                                    applyZoom(zoom)
+                                    offsetX += pan.x
+                                    offsetY += pan.y
+                                    rotation += panRotation
+                                }
+                            }
                         }
-                    }
+                    )
             ) {
                 AsyncImage(
                     model = imageUri,
@@ -438,7 +559,7 @@ fun CameraScreen(
                     modifier = Modifier.iosPressAnimation(flipInteractionSource),
                     enabled = availableCameras.size > 1
                 ) {
-                    Icon(Icons.Filled.Refresh, "Switch Camera", tint = Color.White)
+                    Icon(Icons.Filled.Cameraswitch, "Switch Camera", tint = Color.White)
                 }
             }
         }
@@ -496,6 +617,22 @@ fun CameraScreen(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
 
+                val zoomOutInteractionSource = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .iosPressAnimation(zoomOutInteractionSource)
+                        .clip(CircleShape)
+                        .background(IconCircle)
+                        .clickable(interactionSource = zoomOutInteractionSource, indication = LocalIndication.current) {
+                            scale = (scale / 1.2f).coerceIn(0.5f, 5f)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.ZoomOut, "Zoom out", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+
                 val fitInteractionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
@@ -523,14 +660,33 @@ fun CameraScreen(
                         .clip(CircleShape)
                         .background(IconCircle)
                         .clickable(interactionSource = moveInteractionSource, indication = LocalIndication.current) {
-                            scale = 1f
                             offsetX = 0f
                             offsetY = 0f
-                            rotation = 0f
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Filled.OpenWith, "Move", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val lockInteractionSource = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .iosPressAnimation(lockInteractionSource)
+                        .clip(CircleShape)
+                        .background(if (isOverlayLocked) Pink80 else IconCircle)
+                        .clickable(interactionSource = lockInteractionSource, indication = LocalIndication.current) {
+                            isOverlayLocked = !isOverlayLocked
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (isOverlayLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                        "Lock reference position",
+                        tint = if (isOverlayLocked) Color.Black else Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
@@ -559,7 +715,11 @@ fun CameraScreen(
                     .align(Alignment.Center)
                     .size(120.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.5f)),
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = LocalIndication.current
+                    ) { cancelCountdown() },
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -571,7 +731,7 @@ fun CameraScreen(
             }
         }
 
-        if (aiInstruction != null) {
+        if (showSavedToast) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -580,8 +740,41 @@ fun CameraScreen(
                     .background(Color.Black.copy(alpha = 0.7f))
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text(aiInstruction!!, color = Color.White, fontWeight = FontWeight.Medium)
+                Text("Saved", color = Color.White, fontWeight = FontWeight.Medium)
             }
+        }
+
+        if (lastCapturedUri != null) {
+            val thumbnailInteractionSource = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 32.dp, bottom = 132.dp)
+                    .size(48.dp)
+                    .iosPressAnimationSubtle(thumbnailInteractionSource)
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(2.dp, Color.White, RoundedCornerShape(12.dp))
+                    .clickable(interactionSource = thumbnailInteractionSource, indication = LocalIndication.current) {
+                        onNavigateToGallery()
+                    }
+            ) {
+                AsyncImage(
+                    model = lastCapturedUri,
+                    contentDescription = "Last photo",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(10.dp))
+                )
+            }
+        }
+
+        if (screenFlashActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White)
+            )
         }
 
         Column(
@@ -589,17 +782,6 @@ fun CameraScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
         ) {
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Photo", color = Pink80, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text("Portrait", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
-                Text("Video", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
-                Text("More", color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)
-            }
 
             Row(
                 modifier = Modifier
@@ -676,6 +858,14 @@ fun CameraScreen(
                     Icon(Icons.Outlined.Tune, "Settings", tint = Color.White)
                 }
             }
+        }
+
+        if (shutterFlash.value > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = shutterFlash.value))
+            )
         }
     }
 }
@@ -793,48 +983,54 @@ fun CameraPreview(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val previewView = remember {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+        }
+    }
+    val latestOnCameraReady = rememberUpdatedState(onCameraReady)
+
+    DisposableEffect(cameraSelector, imageCapture, targetFps) {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        cameraProviderFuture.addListener({
+            val cameraProvider = cameraProviderFuture.get()
+            val lowFpsBound = maxOf(10, targetFps / 4)
+            val previewBuilder = Preview.Builder()
+            Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                Range(lowFpsBound, targetFps)
+            )
+            val preview = previewBuilder.build().also {
+                it.setSurfaceProvider(previewView.surfaceProvider)
+            }
+
+            try {
+                cameraProvider.unbindAll()
+                val camera = cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    cameraSelector,
+                    preview,
+                    imageCapture
+                )
+                latestOnCameraReady.value(camera)
+            } catch (e: Exception) {
+                Log.e("CameraPreview", "Use case binding failed", e)
+            }
+        }, ContextCompat.getMainExecutor(context))
+
+        onDispose {}
+    }
 
     AndroidView(
-        factory = { ctx ->
-            PreviewView(ctx).apply {
-                scaleType = PreviewView.ScaleType.FILL_CENTER
-            }
-        },
-        modifier = modifier,
-        update = { previewView ->
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-            cameraProviderFuture.addListener({
-                val cameraProvider = cameraProviderFuture.get()
-                val previewBuilder = Preview.Builder()
-                Camera2Interop.Extender(previewBuilder).setCaptureRequestOption(
-                    CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
-                    Range(targetFps, targetFps)
-                )
-                val preview = previewBuilder.build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
-
-                try {
-                    cameraProvider.unbindAll()
-                    val camera = cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview,
-                        imageCapture
-                    )
-                    onCameraReady(camera)
-                } catch (e: Exception) {
-                    Log.e("CameraPreview", "Use case binding failed", e)
-                }
-            }, ContextCompat.getMainExecutor(context))
-        }
+        factory = { previewView },
+        modifier = modifier
     )
 }
 
 fun takePhoto(
     context: Context,
     imageCapture: ImageCapture,
-    onPhotoTaken: () -> Unit,
+    onPhotoTaken: (Uri?) -> Unit,
     onError: (Exception) -> Unit
 ) {
     val name = "PoseX_${System.currentTimeMillis()}.jpg"
@@ -854,7 +1050,7 @@ fun takePhoto(
         ContextCompat.getMainExecutor(context),
         object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                onPhotoTaken()
+                onPhotoTaken(output.savedUri)
             }
             override fun onError(exc: ImageCaptureException) {
                 Log.e("CameraScreen", "Photo capture failed: ${exc.message}", exc)
